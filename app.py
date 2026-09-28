@@ -14,11 +14,18 @@ st.set_page_config(page_title="مساعد الملخصات والحفظ", layout
 
 st.title("📚 تطبيق تلخيص الدروس والمراجعة الذكي")
 
-# 2. القائمة الجانبية لإدخال المفتاح
-api_key = st.sidebar.text_input("🔑 أدخل مفتاح Gemini API:", type="password")
+# 2. جلب المفتاح تلقائياً من Secrets أو القائمة الجانبية
+api_key = None
+
+# محاولة قراءة المفتاح من Streamlit Secrets
+if "GEMINI_API_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_API_KEY"]
+else:
+    # خيار بديل إذا أردت إدخاله يدوياً عند التجربة على جهازك
+    api_key = st.sidebar.text_input("🔑 أدخل مفتاح Gemini API:", type="password")
 
 if not api_key:
-    st.warning("👈 يرجى إدخال مفتاح Gemini API في القائمة الجانبية للبدء.")
+    st.warning("👈 يرجى ضبط مفتاح Gemini API للبدء.")
     st.stop()
 
 # إعداد المكتبة
@@ -72,12 +79,12 @@ def create_docx_download(text_content):
 def text_to_speech_audio(text_content):
     """دالة تحويل النص إلى صوت MP3"""
     clean_text = text_content.replace('*', '').replace('#', '')
-    tts = gTTS(text=clean_text[:1000], lang='ar')  # تحويل أول 1000 حرف لحجم مناسب
+    tts = gTTS(text=clean_text[:1000], lang='ar')
     fp = io.BytesIO()
     tts.write_to_fp(fp)
     return fp.getvalue()
 
-def render_study_tools(content_input, is_image=False):
+def render_study_tools(content_input):
     """عرض أدوات الحفظ والتفاعل (التلخيص، الصوت، Word، كويز MCQ)"""
     col1, col2 = st.columns(2)
     
@@ -97,11 +104,10 @@ def render_study_tools(content_input, is_image=False):
                     res = model.generate_content([mcq_prompt_template, content_input])
                     clean_json = res.text.strip().replace("```json", "").replace("```", "")
                     st.session_state['mcq_data'] = json.loads(clean_json)
-                    st.session_state['user_answers'] = {}
                 except Exception as e:
                     st.error(f"حدث خطأ أثناء إنشاء الاختبار: {e}")
 
-    # عرض الملخص والصوت والتصدير عند توفره
+    # عرض قسم الملخص وأزرار الصوت وتحميل Word
     if 'summary_text' in st.session_state:
         st.markdown("---")
         st.subheader("📝 الملخص ونقاط الحفظ:")
@@ -109,7 +115,7 @@ def render_study_tools(content_input, is_image=False):
         
         c_audio, c_doc = st.columns(2)
         with c_audio:
-            if st.button("🔊 الاستماع للملخص صوتیّاً"):
+            if st.button("🔊 الاستماع للملخص صوتیّاً", key="btn_audio"):
                 with st.spinner("جاري تجهيز المقطع الصوتي..."):
                     audio_bytes = text_to_speech_audio(st.session_state['summary_text'])
                     st.audio(audio_bytes, format='audio/mp3')
@@ -120,17 +126,18 @@ def render_study_tools(content_input, is_image=False):
                 label="📥 تحميل الملخص بصيغة Word (.docx)",
                 data=docx_bytes,
                 file_name="ملخص_الدرس.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="btn_download_docx"
             )
 
-    # عرض الاختبار التفاعلي MCQ
+    # عرض قسم الاختبار MCQ
     if 'mcq_data' in st.session_state:
         st.markdown("---")
         st.subheader("🧪 اختبار تفاعلي سريع (MCQ)")
         
         mcqs = st.session_state['mcq_data']
         score = 0
-        submitted = st.button("✅ تصحيح الاختبار")
+        submitted = st.button("✅ تصحيح الاختبار", key="btn_submit_mcq")
 
         for idx, q in enumerate(mcqs):
             st.markdown(f"**س{idx+1}: {q['question']}**")
@@ -186,7 +193,7 @@ if option == "📦 رفع ملف (ZIP / PDF / DOCX / TXT / صورة)":
                     elif sub_ext in ['.jpg', '.jpeg', '.png', '.webp']:
                         image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
                         st.image(image, caption=selected_inside, use_container_width=True)
-                        render_study_tools(image, is_image=True)
+                        render_study_tools(image)
                     elif sub_ext in ['.txt', '.md']:
                         text_content = file_bytes.decode('utf-8', errors='ignore')
                         render_study_tools(text_content)
@@ -203,7 +210,7 @@ if option == "📦 رفع ملف (ZIP / PDF / DOCX / TXT / صورة)":
         elif file_ext in [".png", ".jpg", ".jpeg", ".webp"]:
             image = Image.open(uploaded_file).convert("RGB")
             st.image(image, caption=uploaded_file.name, use_container_width=True)
-            render_study_tools(image, is_image=True)
+            render_study_tools(image)
 
         elif file_ext in [".txt", ".md"]:
             text_content = uploaded_file.read().decode('utf-8', errors='ignore')
@@ -220,4 +227,4 @@ else:
     if img_file:
         image = Image.open(img_file).convert("RGB")
         st.image(image, caption="الصفحة المحددة", use_container_width=True)
-        render_study_tools(image, is_image=True)
+        render_study_tools(image)
